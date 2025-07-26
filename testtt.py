@@ -1,0 +1,170 @@
+import cv2
+import mediapipe as mp
+import time
+import os
+import math
+from datetime import datetime
+
+import model
+
+# ----------------- Config -----------------
+PALM_LANDMARKS = [0, 1, 5, 9, 13, 17]  # wrist + MCPs
+CLOSE_MIN = 300     # minimum palm pixel width to trigger
+CLOSE_MAX = 350     # maximum palm pixel width to trigger
+SAVE_COOLDOWN_SEC = 2.0
+OUTPUT_DIR = "palm_shots"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def liv_vdo(max_samples=3,debug=False):
+    # ----------------- MediaPipe Setup -----------------
+    mp_hands = mp.solutions.hands
+    mp_drawing = mp.solutions.drawing_utils
+    hands = mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=1,
+        min_detection_confidence=0.3,
+        min_tracking_confidence=0.3
+    )
+
+    cap = cv2.VideoCapture(0)
+    prev_time = 0.0
+    last_saved_time = 0.0
+    dist = 0.0
+    saved_paths = []
+    collected_embs = []
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            print("Couldn't read from camera.")
+            break
+
+        frame = cv2.flip(frame, 1)
+        h, w, _ = frame.shape
+
+        # Process frame
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(frame_rgb)
+
+        palm_crop = None
+        should_save = False
+        status_text = "Searching..."
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Draw landmarks
+                # mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+                # Collect palm landmarks
+                palm_points = []
+                for idx in PALM_LANDMARKS:
+                    lx = int(hand_landmarks.landmark[idx].x * w)
+                    ly = int(hand_landmarks.landmark[idx].y * h)
+                    palm_points.append((lx, ly))
+
+                # Named landmarks
+                x0, y0 = palm_points[0]  # 0 -> bottom (wrist)
+                x1_l, y1_l = palm_points[1]  # 1 -> left side
+                x9, y9 = palm_points[3]  # 9 -> top side
+                x17, y17 = palm_points[5]  # 17 -> right side
+
+                # Palm width proxy (distance between 5 and 17)
+                x5, y5 = palm_points[2]
+                palm_pixel_width = math.dist((x5, y5), (x17, y17))
+                dist = palm_pixel_width
+
+                # ----- Rectangle with required alignments -----
+                # Left = landmark 1.x ; Right = landmark 17.x
+                # Top = landmark 9.y  ; Bottom = landmark 0.y
+                x_left = x1_l
+                x_right = x17
+                y_top = y9
+                y_bottom = y0
+
+                # Handle possible inversions (depending on orientation)
+                if x_right < x_left:
+                    x_left, x_right = x_right, x_left
+                if y_bottom < y_top:
+                    y_top, y_bottom = y_bottom, y_top
+
+                # Clip to frame
+                x_left = max(x_left, 0)
+                y_top = max(y_top, 0)
+                x_right = min(x_right, w - 1)
+                y_bottom = min(y_bottom, h - 1)
+
+                # Crop
+                if y_bottom > y_top and x_right > x_left:
+                    palm_crop = frame[y_top:y_bottom, x_left:x_right].copy()
+
+                # Draw debug
+                cv2.rectangle(frame, (x_left, y_top), (x_right, y_bottom), (0, 255, 0), 2)
+                cv2.circle(frame, (x0, y0), 6, (0, 0, 255), -1)
+                cv2.circle(frame, (x1_l, y1_l), 6, (0, 255, 255), -1)
+                cv2.circle(frame, (x9, y9), 6, (255, 0, 255), -1)
+                cv2.circle(frame, (x17, y17), 6, (255, 0, 0), -1)
+                cv2.putText(frame, "0 (bottom)", (x0 + 5, y0 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                cv2.putText(frame, "1 (left)", (x1_l + 5, y1_l - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                cv2.putText(frame, "9 (top)", (x9 + 5, y9 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
+                cv2.putText(frame, "17 (right)", (x17 + 5, y17 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+                # Trigger on distance window
+                if CLOSE_MIN < palm_pixel_width < CLOSE_MAX:
+                    status_text = f"READY - Capturing at {palm_pixel_width:.2f} px"
+                    now = time.time()
+                    if now - last_saved_time >= SAVE_COOLDOWN_SEC:
+                        if palm_crop is not None and palm_crop.size > 0:
+                            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            out_path = os.path.join(OUTPUT_DIR, f"palm_{ts}.png")
+                            emb = model.get_embedding(palm_crop,debugg=debug) #getting embedding of the captured image
+                            collected_embs.append(emb) #storing it to a listtt
+                            cv2.imwrite(out_path, palm_crop)
+                            saved_paths.append(out_path)
+                            last_saved_time = now
+                            print(f"Saved: {out_path} at distance {palm_pixel_width:.2f} px "
+                                  f"(w={x_right - x_left}px, h={y_bottom - y_top}px)")
+                            if len(saved_paths) >= max_samples:
+                                cap.release()
+                                cv2.destroyAllWindows()
+                                return collected_embs,palm_crop
+                        should_save = True
+                else:
+                    if palm_pixel_width <= CLOSE_MIN:
+                        status_text = f"Too Far ({dist:.2f} px)"
+                    else:
+                        status_text = f"Too Close ({dist:.2f} px)"
+
+        # FPS
+        curr_time = time.time()
+        fps = 1.0 / (curr_time - prev_time) if prev_time != 0 else 0.0
+        prev_time = curr_time
+        cv2.putText(frame, f'FPS: {int(fps)}', (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # Status
+        cv2.putText(frame, status_text, (10, 75),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                    (0, 255, 0) if should_save else (0, 0, 255), 2)
+
+        # Show
+        if palm_crop is not None and palm_crop.size > 0:
+            cv2.imshow("Palm Only (Crop)", palm_crop)
+        else:
+            cv2.imshow("Palm Only (Crop)", frame)
+
+        cv2.imshow("Full Frame (Debug)", frame)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == 27 or key == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+
+
