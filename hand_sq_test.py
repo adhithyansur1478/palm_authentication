@@ -14,6 +14,9 @@ SAVE_COOLDOWN_SEC = 2.0
 OUTPUT_DIR = "palm_shots"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# ----------------- Smoothing Config -----------------
+SMOOTHING_ALPHA = 0.4  # 0 = very smooth but laggy, 1 = no smoothing
+
 def liv_vdo(max_samples=3, debug=False):
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
@@ -28,6 +31,8 @@ def liv_vdo(max_samples=3, debug=False):
     last_saved_time = 0.0
     saved_paths = []
     collected_embs = []
+
+    smoothed_box = None  # For bounding box smoothing
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -60,6 +65,17 @@ def liv_vdo(max_samples=3, debug=False):
                 # Straight bounding box
                 x_left, x_right = max(min(xs), 0), min(max(xs), w - 1)
                 y_top, y_bottom = max(min(ys), 0), min(max(ys), h - 1)
+
+                # --- Smooth the bounding box ---
+                current_box = [x_left, y_top, x_right, y_bottom]
+                if smoothed_box is None:
+                    smoothed_box = current_box
+                else:
+                    smoothed_box = [
+                        int(SMOOTHING_ALPHA * current_box[i] + (1 - SMOOTHING_ALPHA) * smoothed_box[i])
+                        for i in range(4)
+                    ]
+                x_left, y_top, x_right, y_bottom = smoothed_box
 
                 # Crop palm
                 if x_right > x_left and y_bottom > y_top:
