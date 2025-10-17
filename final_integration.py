@@ -1,11 +1,22 @@
-import os
+import sys, traceback
 
-import cv2
+print(">>> Starting final_integration.py")
 
-import auth
-import testtt
-import model
-import numpy as np
+try:
+    import os
+    import cv2
+    import auth
+    import testtt
+    import model
+    import numpy as np
+    print(">>> All imports successful")
+
+except Exception as e:
+    print("❌ Import error:", e)
+    traceback.print_exc(file=sys.stdout)  # force full error output
+    input("\nPress Enter to exit...")
+    sys.exit(1)
+
 
 REGISTERED_DIR = "registered_palm"
 os.makedirs(REGISTERED_DIR, exist_ok=True)
@@ -92,5 +103,32 @@ def match_user(num_samples=1, threshold=0.85,debug=False):
 
 # ----------- Test -----------
 
-#register_user("adhii", 10,debug=False)
-match_user(5,debug=False)
+#register_user("chuppy", 10,debug=False)
+#match_user(5,debug=False)
+
+
+# ----------- Entry Point (Menu) -----------
+if __name__ == "__main__":
+    try:
+        print("Palm Recognition System")
+        print("1 = Register User")
+        print("2 = Match User")
+        choice = input("Enter choice: ")
+
+        if choice == "1":
+            username = input("Enter username: ")
+            samples = int(input("Number of samples (default=3): ") or 10)
+            register_user(username, samples, debug=False)
+        elif choice == "2":
+            samples = int(input("Number of samples (default=1): ") or 5)
+            match_user(samples, debug=False)
+        else:
+            print("❌ Invalid choice")
+
+    except Exception as e:
+        import traceback
+        print("\n❌ An error occurred:",e)
+        traceback.print_exc(file=sys.stdout)  # force full error details
+
+    input("\nPress Enter to exit...")
+
