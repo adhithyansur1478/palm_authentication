@@ -121,7 +121,7 @@ if __name__ == "__main__":
             register_user(username, samples, debug=False)
         elif choice == "2":
             samples = int(input("Number of samples (default=1): ") or 5)
-            match_user(samples, debug=False)
+            match_user(samples, debug=True)
         else:
             print("❌ Invalid choice")
 
