@@ -119,7 +119,7 @@ def match_user(num_samples=1, threshold=0.85, debug=False):
 
     # Handle multiple embeddings (average)
     if isinstance(emb, list):
-        emb = np.mean([ensure_vector(e) for e in emb], axis=0)
+        emb = np.median([ensure_vector(e) for e in emb], axis=0)
     emb = ensure_vector(emb)
 
     # Get detected orientation from the last frame
