@@ -17,6 +17,40 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ----------------- Smoothing Config -----------------
 SMOOTHING_ALPHA = 0.4  # 0 = very smooth but laggy, 1 = no smoothing
 
+def get_orientation(landmarks, image_width, image_height):
+    import math
+    wrist = landmarks[0]
+    index_mcp = landmarks[5]
+    pinky_mcp = landmarks[17]
+    middle_mcp = landmarks[9]
+
+    def to_px(pt):
+        return int(pt.x * image_width), int(pt.y * image_height)
+
+    index_px = to_px(index_mcp)
+    pinky_px = to_px(pinky_mcp)
+    middle_px = to_px(middle_mcp)
+
+    hand_vector_x = index_px[0] - pinky_px[0]
+    hand_vector_y = index_px[1] - pinky_px[1]
+    angle = math.degrees(math.atan2(hand_vector_y, hand_vector_x))
+
+    if -180 <= angle <= -150:
+        orientation = "Straight"
+    elif angle > 150:
+        orientation = "Tilted Left"
+    elif 0 < angle <= 150:
+        orientation = "Left"
+    elif angle > -150 and angle < -130:
+        orientation = "Tilted Right"
+    elif angle > -130:
+        orientation = "Right"
+    else:
+        orientation = "Unknown"
+
+    return orientation, angle
+
+
 def liv_vdo(max_samples=3, debug=False):
     # ----------------- MediaPipe Setup -----------------
     mp_hands = mp.solutions.hands
@@ -62,6 +96,14 @@ def liv_vdo(max_samples=3, debug=False):
                     lx = int(hand_landmarks.landmark[idx].x * w)
                     ly = int(hand_landmarks.landmark[idx].y * h)
                     palm_points.append((lx, ly))
+                h, w, _ = frame.shape
+                orientation_text, angle_val = get_orientation(hand_landmarks.landmark, w, h)
+                cv2.putText(frame, f"Orientation: {orientation_text}", (10, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+                # Store the current detected orientation globally
+                global last_orientation
+                last_orientation = orientation_text
 
                 # Compute raw bounding box (unrotated)
                 xs = [pt[0] for pt in palm_points]
@@ -151,3 +193,9 @@ def liv_vdo(max_samples=3, debug=False):
 
     cap.release()
     cv2.destroyAllWindows()
+
+last_orientation = "Unknown"
+
+def get_last_orientation():
+    global last_orientation
+    return last_orientation

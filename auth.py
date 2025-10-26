@@ -17,8 +17,9 @@ def save_db(db):
     with open(DB_PATH, "w") as f:
         json.dump(db, f, indent=4)
 
-def save_user_embedding(username, emb):
+def save_user_embedding(username, emb_data):
     db = load_db()
-    db[username] = emb.tolist()  # store as list for JSON compatibility
+    db[username] = emb_data  # can now be dict (orientation-wise)
     save_db(db)
-    print(f"User '{username}' registered.")
+    print(f"✅ User '{username}' registered with structured embeddings.")
+
